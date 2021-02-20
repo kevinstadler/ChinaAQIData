@@ -4,6 +4,9 @@ import geojson
 import time
 import xml.dom.minidom
 
+from datetime import datetime, timedelta
+import requests
+import sys
 
 def data_from_xml_json(xmlfile):
     fp = open(xmlfile)
@@ -40,8 +43,40 @@ def xmlparse(xmlstr):
     return airdata
     # return json.dumps(airdata, ensure_ascii=False)
 
+def filterkeys(dct, keys):
+    return { k: v for k, v in dct.items() if k in keys }
+
 if __name__ == "__main__":
+#    aqistationcode = ['1454A', '1455A', '1452A', '1453A']
+    openaqlocation = ['金鼎山', '碧鸡广场', '龙泉镇', '东风东路']
+#    openaqlocationid = [9657, 9260, 8961, 9841]
+
     data = data_from_xml_json("data.xml")
+    filtered = [ filterkeys(recd, ['pm2_5', 'pm2_5_24h', 'positionname', 'primarypollutant', 'stationcode', 'timepoint']) for recd in data if recd['positionname'] in openaqlocation ]
+#    print([ rec['positionname'] for rec in filtered ])
+    latest = filtered[0]['timepoint']
+    lateststamp = datetime.fromisoformat(latest)
+    print(lateststamp.hour)
+
+    nhours = 36
+    limit = nhours * len(openaqlocation)
+
+    locations = '&'.join([ 'location=' + location for location in openaqlocation ])
+    openaq = [ filterkeys(recd, ['date', 'location', 'locationId', 'value']) for recd in requests.get(f'https://docs.openaq.org/v2/measurements?parameter=pm25&{locations}&order_by=datetime&sort=desc&limit={limit}').json()['results'] ]
+    openaq = [ {k: datetime.fromisoformat(v['local']).replace(tzinfo=None) if k == 'date' else v for k, v in recd.items() } for recd in openaq ]
+    print([ len([ rec for rec in openaq if rec['location'] == site ]) for site in openaqlocation ])
+
+    def getvalue(location, dh):
+        try:
+            return next(filter(lambda m: m['location'] == location and m['date'] == lateststamp - timedelta(hours=dh), openaq))['value']
+        except StopIteration:
+            return -1
+    with open('/Users/shared/www/pm25.csv', 'w') as f:
+        for newest in filtered:
+            f.write(','.join([ newest['pm2_5'] ] + [ str(getvalue(newest['positionname'], dh)) for dh in range(1, nhours) ]) + '\n')
+
+    sys.exit(0)
+
     featList = []
     for recd in data:
         try:

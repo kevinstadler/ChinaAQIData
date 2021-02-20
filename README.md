@@ -1,3 +1,5 @@
+This fork combines the latest measurement from the below API (newest data released approximately half past every hour) with 48 hour historical data from [OpenAQ](https://openaq.org) into one compact JSON.
+
 # ChinaAQIData
 
 ## 中国城市AQI数据
