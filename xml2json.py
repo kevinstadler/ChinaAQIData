@@ -52,28 +52,40 @@ if __name__ == "__main__":
 #    openaqlocationid = [9657, 9260, 8961, 9841]
 
     data = data_from_xml_json("data.xml")
-    filtered = [ filterkeys(recd, ['pm2_5', 'pm2_5_24h', 'positionname', 'primarypollutant', 'stationcode', 'timepoint']) for recd in data if recd['positionname'] in openaqlocation ]
+    # loop location names first otherwise the location order will be according to the xml input
+    filtered = [ filterkeys(recd, ['pm2_5', 'pm2_5_24h', 'positionname', 'primarypollutant', 'stationcode', 'timepoint']) for locationname in openaqlocation for recd in data if recd['positionname'] == locationname ]
 #    print([ rec['positionname'] for rec in filtered ])
     latest = filtered[0]['timepoint']
     lateststamp = datetime.fromisoformat(latest)
-    print(lateststamp.hour)
 
-    nhours = 36
-    limit = nhours * len(openaqlocation)
+    previouscheck = int(open('lastcheck').readline())
+    if lateststamp.hour == previouscheck:
+      sys.exit(0)
+    elif lateststamp.hour == (previouscheck + 1) % 24:
+      # load old data
+      previousdata = [ line[0:-1].split(',') for line in open('/Users/shared/www/pm25.txt').readlines() ]
+      newdata = [ [new['pm2_5']] + old[0:-1] for new, old in zip(filtered, previousdata) ]
+    else:
+      nhours = 36
+      limit = nhours * len(openaqlocation)
 
-    locations = '&'.join([ 'location=' + location for location in openaqlocation ])
-    openaq = [ filterkeys(recd, ['date', 'location', 'locationId', 'value']) for recd in requests.get(f'https://docs.openaq.org/v2/measurements?parameter=pm25&{locations}&order_by=datetime&sort=desc&limit={limit}').json()['results'] ]
-    openaq = [ {k: datetime.fromisoformat(v['local']).replace(tzinfo=None) if k == 'date' else v for k, v in recd.items() } for recd in openaq ]
-    print([ len([ rec for rec in openaq if rec['location'] == site ]) for site in openaqlocation ])
+      locations = '&'.join([ 'location=' + location for location in openaqlocation ])
+      openaq = [ filterkeys(recd, ['date', 'location', 'locationId', 'value']) for recd in requests.get(f'https://docs.openaq.org/v2/measurements?parameter=pm25&{locations}&order_by=datetime&sort=desc&limit={limit}').json()['results'] ]
+      openaq = [ {k: datetime.fromisoformat(v['local']).replace(tzinfo=None) if k == 'date' else v for k, v in recd.items() } for recd in openaq ]
+#      print([ len([ rec for rec in openaq if rec['location'] == site ]) for site in openaqlocation ])
+#      print([[ rec for rec in openaq if rec['location'] == site ] for site in openaqlocation ])
 
-    def getvalue(location, dh):
-        try:
-            return next(filter(lambda m: m['location'] == location and m['date'] == lateststamp - timedelta(hours=dh), openaq))['value']
-        except StopIteration:
-            return -1
-    with open('/Users/shared/www/pm25.csv', 'w') as f:
-        for newest in filtered:
-            f.write(','.join([ newest['pm2_5'] ] + [ str(getvalue(newest['positionname'], dh)) for dh in range(1, nhours) ]) + '\n')
+      def getvalue(location, dh):
+          try:
+              return next(filter(lambda m: m['location'] == location and m['date'] == lateststamp - timedelta(hours=dh), openaq))['value']
+          except StopIteration:
+              return -1
+      newdata = [ [ newest['pm2_5'] ] + [ str(getvalue(newest['positionname'], dh)) for dh in range(1, nhours) ] for newest in filtered ]
+    with open('/Users/shared/www/pm25.txt', 'w') as f:
+      for locationdata in newdata:
+         f.write(','.join([ str(pt) for pt in locationdata ]) + '\n')
+    with open('lastcheck', 'w') as f:
+      f.write(str(lateststamp.hour))
 
     sys.exit(0)
 
